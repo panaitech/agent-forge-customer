@@ -1,0 +1,9 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Excel / Office lock and temp files
+.~*
+~$*
+*.tmp
