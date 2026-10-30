@@ -182,7 +182,10 @@ def bom_price(name):
         if "M3" in t:
             return 0.08
         return 0.15
-    if "模组" in t or "灯珠" in t:
+    # 灯珠/模组本体价在规格单价表；铁箱整屏 BOM 里若填演示价会把 1㎡ 辅料撑爆
+    if "模组" in t or "灯珠" in t or "发光二极管" in t:
+        return None
+    if "面罩" in t or "底壳" in t:
         return None
     return 1.5
 
@@ -224,22 +227,58 @@ def seed_unit():
         paint(lamp.cell(r, 5), "演示价·灯珠")
 
     kit = wb["套件单价"]
+    # 已有行：(点间距, 工艺) → 行号；空行留给补缺
+    have = {}
+    blank = []
     for r in range(5, (kit.max_row or 5) + 1):
         pitch = kit.cell(r, 1).value
         if pitch in (None, ""):
+            blank.append(r)
             continue
         craft = kit.cell(r, 2).value or "贴片"
         if kit.cell(r, 2).value in (None, ""):
             paint(kit.cell(r, 2), "贴片")
             craft = "贴片"
-        shell, n, mask, ring = kit_of(pitch, craft)
-        paint(kit.cell(r, 3), shell)
-        paint(kit.cell(r, 4), n)
-        paint(kit.cell(r, 5), mask)
-        paint(kit.cell(r, 6), ring)
-        paint(kit.cell(r, 8), "演示价·套件")
+        have[(round(float(pitch), 3), str(craft))] = r
 
+    # 模组表出现的点间距 + KIT 字典：演示稿套件须覆盖，避免下游取模组时套件无对应行
     mod = wb["模组价格"]
+    need = set(round(float(k), 3) for k in KIT)
+    for r in range(5, (mod.max_row or 5) + 1):
+        pitch = mod.cell(r, 2).value
+        if pitch in (None, ""):
+            continue
+        need.add(round(float(pitch), 3))
+
+    def kit_formula(row):
+        return f'=IF(A{row}="","",C{row}+D{row}*E{row}+F{row})'
+
+    def fill_kit(row, pitch, craft):
+        shell, n, mask, ring = kit_of(pitch, craft)
+        paint(kit.cell(row, 1), pitch)
+        paint(kit.cell(row, 2), craft)
+        paint(kit.cell(row, 3), shell)
+        paint(kit.cell(row, 4), n)
+        paint(kit.cell(row, 5), mask)
+        paint(kit.cell(row, 6), ring)
+        kit.cell(row, 7).value = kit_formula(row)
+        paint(kit.cell(row, 8), "演示价·套件")
+
+    for key, row in list(have.items()):
+        fill_kit(row, key[0], key[1])
+
+    # 缺档补「贴片」；10.416 原表已有直插则保留，其它点间距演示只补贴片一行
+    for pitch in sorted(need):
+        key = (pitch, "贴片")
+        if key in have:
+            continue
+        if blank:
+            row = blank.pop(0)
+        else:
+            row = (kit.max_row or 4) + 1
+        fill_kit(row, pitch, "贴片")
+        have[key] = row
+
     heads = [c.value for c in next(mod.iter_rows(min_row=4, max_row=4))]
     fee_i = heads.index("加工费") + 1
     glue_i = heads.index("灌胶加价") + 1
@@ -305,6 +344,79 @@ def seed_unit():
     return DST_UNIT
 
 
+def _num(v):
+    return float(v) if isinstance(v, (int, float)) else None
+
+
+def roll_aluminum(ws):
+    """演示稿：把压铸铝 BOM 行合计与汇总格滚成可读数值（原表公式无 Excel 缓存时 Agent 读到空）。"""
+    for r in range(2, (ws.max_row or 2) + 1):
+        d = _num(ws.cell(r, 4).value)
+        e = _num(ws.cell(r, 5).value)
+        f = ws.cell(r, 6).value
+        # 包材两行原表缺实际数量：演示默认 1，否则 F60 滚不出
+        if r in (58, 59) and d is not None and e is None:
+            paint(ws.cell(r, 5), 1)
+            e = 1.0
+        if d is None or e is None:
+            continue
+        if isinstance(f, str) and f.startswith("=") and "SUM" not in f.upper():
+            paint(ws.cell(r, 6), round(d * e, 4))
+        elif f in (None, ""):
+            paint(ws.cell(r, 6), round(d * e, 4))
+    paint(ws.cell(56, 6), round(sum(_num(ws.cell(r, 6).value) or 0 for r in range(9, 56)), 4))
+    paint(
+        ws.cell(60, 6),
+        round((_num(ws.cell(58, 6).value) or 0) + (_num(ws.cell(59, 6).value) or 0) + 6, 4),
+    )
+    # 10㎡ 共用段原表缺用量时 E80=0；有用量则按公式折 1㎡
+    s10 = sum(_num(ws.cell(r, 5).value) or 0 for r in range(63, 79))
+    paint(ws.cell(79, 5), round(s10, 4))
+    paint(ws.cell(80, 5), round(s10 / 10, 4))
+
+
+def roll_iron(ws):
+    """演示稿：铁箱先填价税合计=含税单价×实际数量，再滚 1㎡ 辅料/包材。"""
+    for r in range(2, (ws.max_row or 2) + 1):
+        cur = ws.cell(r, 5).value
+        if isinstance(cur, str) and cur.startswith("="):
+            continue
+        d = _num(ws.cell(r, 4).value)
+        qty = _num(ws.cell(r, 7).value)
+        if qty is None:
+            qty = _num(ws.cell(r, 6).value)
+        if d is None or qty is None:
+            continue
+        paint(ws.cell(r, 5), round(d * qty, 4))
+    paint(ws.cell(57, 5), round(sum(_num(ws.cell(r, 5).value) or 0 for r in range(7, 57)), 4))
+    paint(ws.cell(58, 5), round((_num(ws.cell(57, 5).value) or 0) / 10, 4))
+    paint(ws.cell(62, 5), round(sum(_num(ws.cell(r, 5).value) or 0 for r in range(60, 62)), 4))
+    paint(ws.cell(63, 5), round((_num(ws.cell(62, 5).value) or 0) / 10 + 2, 4))
+    if _num(ws.cell(4, 5).value) is not None:
+        paint(ws.cell(5, 5), round((_num(ws.cell(4, 5).value) or 0) / 10, 4))
+    paint(ws.cell(73, 5), round(sum(_num(ws.cell(r, 5).value) or 0 for r in range(65, 73)), 4))
+    paint(ws.cell(74, 5), round((_num(ws.cell(73, 5).value) or 0) / 10 + 5, 4))
+
+
+def roll_sqm(ws, al, fe):
+    """把每平米收口里引用 BOM 的辅材/包材公式写成滚出数值，便于 Agent 直接读。"""
+    al_pack = _num(al["F60"].value) or 0
+    al_aux = (_num(al["F56"].value) or 0) + (_num(al["E80"].value) or 0) + 20
+    fe_pack = _num(fe["E63"].value) or 0
+    fe_aux = (_num(fe["E58"].value) or 0) + 20
+    for r in range(2, (ws.max_row or 2) + 1):
+        n = ws.cell(r, 14).value
+        o = ws.cell(r, 15).value
+        if not (isinstance(n, str) and n.startswith("=")):
+            continue
+        if "压铸铝" in n or "压铸铝" in str(o or ""):
+            paint(ws.cell(r, 14), round(al_pack, 4))
+            paint(ws.cell(r, 15), round(al_aux, 4))
+        elif "铁箱" in n or "铁箱" in str(o or ""):
+            paint(ws.cell(r, 14), round(fe_pack, 4))
+            paint(ws.cell(r, 15), round(fe_aux, 4))
+
+
 def seed_cost():
     if not SRC_COST.exists():
         raise SystemExit(f"缺少 {SRC_COST}，请先运行整理原表.py")
@@ -312,8 +424,9 @@ def seed_cost():
     wb = load_workbook(DST_COST)
     tip = wb["说明"]
     tip["A8"] = (
-        "【演示副本】已为辅材 BOM 空单价与每平米收口大件单价列填入模拟数（黄底）。"
-        "正式稿大件单价仍应留空、取自规格单价表。本文件不是创迪成本。"
+        "【演示副本】已为辅材 BOM 空单价填模拟数，并按公式骨架滚出行合计与 1㎡ 辅料/包材汇总（黄底）。"
+        "正式稿大件单价仍应留空、取自规格单价表；正式稿汇总格保留公式，须在 Excel 中打开计算或由人维护滚出值。"
+        "本文件不是创迪成本。"
     )
 
     for sheet, price_col in (("压铸铝辅材", 4), ("铁箱辅材", 4)):
@@ -331,6 +444,11 @@ def seed_cost():
             if price is None:
                 continue
             paint(ws.cell(r, price_col), price)
+
+    al = wb["压铸铝辅材"]
+    fe = wb["铁箱辅材"]
+    roll_aluminum(al)
+    roll_iron(fe)
 
     sqm = wb["每平米收口"]
     pitch = None
@@ -372,6 +490,7 @@ def seed_cost():
         mark = "演示价·大件示意"
         paint(sqm.cell(r, 17), f"{note}；{mark}" if note else mark)
 
+    roll_sqm(sqm, al, fe)
     wb.save(DST_COST)
     return DST_COST
 

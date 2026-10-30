@@ -244,6 +244,10 @@ def selfcheck():
         raise SystemExit("核算口径表-演示应收口模组单价有示意数")
     if demo_c["压铸铝辅材"]["D9"].value in (None, ""):
         raise SystemExit("核算口径表-演示辅材应有模拟单价")
+    if not isinstance(demo_c["压铸铝辅材"]["F56"].value, (int, float)):
+        raise SystemExit("核算口径表-演示应将压铸铝 F56 滚成数值（供 Agent 可读）")
+    if not isinstance(demo_c["铁箱辅材"]["E58"].value, (int, float)):
+        raise SystemExit("核算口径表-演示应将铁箱 E58 滚成数值（供 Agent 可读）")
     demo_c.close()
     blob = (CHUANGDI / "数据" / "规格单价表.xlsx").read_bytes() + (CHUANGDI / "数据" / "核算口径表.xlsx").read_bytes()
     for word in ("弘正", "鑫恩拓"):

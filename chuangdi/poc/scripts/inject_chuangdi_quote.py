@@ -80,21 +80,24 @@ def team_quote(role_ids: dict[str, str]) -> dict:
             "读表须登记规格单价表与核算口径 BOM/每平米收口结构；计价须按 chuangdi-quote-price 公式链与 BOM 路径写算式，辅材须来源于 BOM 汇总。"
             "第一次提交作业单必须一次列入全部六个执行岗。依赖以契约为准，不要改、不要漏。"
             "每一波对照验收标准通过即可，不要打回。各岗只交自己契约内的文件。"
-            "交付物给成本岗和销售看：不写工具名、参数名、置信度。"
-            "单价空着就留空；带「-演示」的表只能标对照，不得写入报价单正式栏。"
-            "报价单每一行必须对应招标清单行并写出处页；猜测不得写入正式金额。"
+            "交付物指代招标内容用页码+招标序号+设备名称；正文无工具名、参数名、置信度。"
+            "点间距等以整本招标为准；已写明的写数值与页码出处；都没有的标招标未给出（勿自选档位）。"
+            "计价岗：点间距招标未给出时须用 question 问用户选型后再取模组价；算式备注「用户指定，非招标原文」；拒答则金额留空。"
+            "单价空着就留空。任务附件中的价表（含「-演示」文件名）一律按正式表取价并写入报价单正式栏。"
+            "报价单每一条目必须对应招标一览表序号并写出处页；无价表依据不得猜测金额。"
             "任务说明若要求 Word 或 PDF：优先 skill docx/pdf；Skill 不支持或失败则在工作区写代码生成。"
         ),
         "visibility": "tenant",
         "mode": "pipeline",
         "accept_criteria": "\n".join(
             [
-                "1. 01-解析.md 含拟报价行报价所需字段及排除行；名称保持招标原文；无工具名。该岗只有这一个文件。",
-                "2. 02-复核.md 对解析输出全面核对；逐行通过或退回；不改抄录数字。该岗只有这一个文件。",
+                "1. 01-解析.md：需报价仅情报板本体且字段齐全；本次不报价为名单式（页码·序号·名称+理由），非本品不抽报价字段；无工具名。该岗只有这一个文件。",
+                "2. 02-复核.md 按页码核对需报价字段与不报价分类；误分类或非本品展开全字段则退回。该岗只有这一个文件。",
                 "3. 03-读表.md 写明规格单价表与核算口径表（含压铸铝/铁箱辅材 BOM、每平米收口）的文件名、工作表、列；不算金额。该岗只有这一个文件。",
-                "4. 04-计价.md 仅用复核通过的行；按公式链写算式；辅材/包材写明来源于 BOM 汇总；空单价留空；演示价不进正式栏。该岗只有这一个文件。",
+                "4. 04-计价.md 仅用复核通过的条目；按公式链写算式；辅材/包材写明来源于 BOM 汇总；"
+                "点间距招标未给出须先 question 问用户再取模组价并备注用户指定；附件价表（含-演示）按正式表取价。该岗只有这一个文件。",
                 "5. 05-物料核对.md 对照附件规格单价表核大件；一致写规格，否则只列候选；无单价。该岗只有这一个文件。",
-                "6. 报价单.md：行与复核通过的招标行一一对应；含出处；正式栏无演示价；无工具名。"
+                "6. 报价单.md：条目与复核通过的招标序号一一对应；含出处页码；附件价表单价写入正式栏；无工具名。"
                 "若任务要求 Word/PDF，另交 报价单.docx / 报价单.pdf（优先平台 skill；不够则工作区代码生成）。该岗不交其它岗位文件。",
                 "7. 任一岗位出现其他岗位的文件，本岗验收不通过。",
             ]
@@ -112,7 +115,7 @@ def team_quote(role_ids: dict[str, str]) -> dict:
                 "role_id": role_ids["parse"],
                 "duty": "第 1 环 - 清单解析",
                 "order": 1,
-                "output_contract": "01-解析.md：报价所需字段 + 排除行；名称保持原文",
+                "output_contract": "01-解析.md：需报价/不报价条目；标题含页码+招标序号+名称",
                 "produces": ["01-解析.md"],
             },
             {
@@ -120,7 +123,7 @@ def team_quote(role_ids: dict[str, str]) -> dict:
                 "duty": "第 2 环 - 原文复核（全面）",
                 "order": 2,
                 "input_contract": "上游 01-解析.md 与任务 PDF",
-                "output_contract": "02-复核.md：对照 PDF 全面通过或退回；不改抄录",
+                "output_contract": "02-复核.md：按页码全面通过或退回；不改抄录",
                 "produces": ["02-复核.md"],
             },
             {
@@ -135,8 +138,8 @@ def team_quote(role_ids: dict[str, str]) -> dict:
                 "role_id": role_ids["price"],
                 "duty": "第 4 环 - 计价（公式链 + BOM）",
                 "order": 4,
-                "input_contract": "上游读表与复核抄录；三件套",
-                "output_contract": "04-计价.md：公式链算式；辅材来自 BOM；空价留空",
+                "input_contract": "上游读表与复核抄录；三件套；缺点间距时问用户",
+                "output_contract": "04-计价.md：公式链算式；缺距 question 后取价；辅材来自 BOM；空价留空",
                 "produces": ["04-计价.md"],
             },
             {
@@ -167,30 +170,37 @@ def _worker(
     skill: str,
     extra_skills: list[str] | None = None,
     shell: bool = False,
+    question: bool = False,
 ) -> dict:
     """执行岗：读附件、写交付物、加载 Skill；默认不委派、不跑 shell、无 MCP。"""
     skills = [skill, *(extra_skills or [])]
+    caps = [
+        "tool:read",
+        "tool:grep",
+        "tool:glob",
+        "tool:skill",
+        *[f"skill:{s}" for s in skills],
+    ]
+    if question:
+        caps.append("tool:question")
+    rules = [
+        *READ,
+        *PERSIST,
+        *SKILL_ALLOW,
+        *(SHELL if shell else NO_SHELL),
+        *NO_NET,
+        *NO_DELEGATE,
+    ]
+    if question:
+        rules.append({"permission": "question", "pattern": "*", "action": "allow"})
     return {
         "key": key,
         "role": {
             "name": name,
             "description": description,
             "persona": persona,
-            "capabilities": [
-                "tool:read",
-                "tool:grep",
-                "tool:glob",
-                "tool:skill",
-                *[f"skill:{s}" for s in skills],
-            ],
-            "permissions": [
-                *READ,
-                *PERSIST,
-                *SKILL_ALLOW,
-                *(SHELL if shell else NO_SHELL),
-                *NO_NET,
-                *NO_DELEGATE,
-            ],
+            "capabilities": caps,
+            "permissions": rules,
             "approval_policy": ROLE_POLICY,
             "memory_scope": "session",
             "enabled": True,
@@ -231,9 +241,11 @@ ROLES = [
         "第 1 环：按销售报价所需字段通读招标抽取",
         (
             f"你是清单解析员。加载 skill {PARSE_SKILL} 与 {RUNBOOK}。"
-            "从情报板销售报价角度通读招标 PDF，抽出拟报价行所需字段与排除行。"
+            "通读招标 PDF：仅情报板本体进需报价并写全字段；"
+            "信号灯、电光标志、疏散指示、纯支架/立柱/门架等只进本次不报价名单（页码·序号·名称+理由），不抽点间距/亮度等。"
+            "需报价条目标题写成「第×页 · 招标序号 N · 设备名称」。"
             "只写入 01-解析.md。清单名称保持招标原文。禁止创建其他岗位的文件。"
-            "招标未写则留空并注明，禁止猜测。文档不写工具名。产出用简体中文。"
+            "禁止猜测。文档不写工具名。产出用简体中文。"
         ),
         PARSE_SKILL,
     ),
@@ -243,7 +255,9 @@ ROLES = [
         "第 2 环：对照 PDF 全面复核解析输出",
         (
             f"你是原文复核员。加载 skill {REVIEW_SKILL} 与 {RUNBOOK}。"
-            "读上游 01-解析，对照招标 PDF，按报价所需字段全面核对（名称、数量单位、面积屏数、点间距与显示要求、安装形态、出处、应否报价），不只查一项。"
+            "读上游 01-解析，按页码核对需报价的情报板条目字段；"
+            "非本品若误入需报价或被抽成全套报价字段须退回。"
+            "本次不报价只核分类与理由，不核报价字段。"
             "只写入 02-复核.md。不改抄录数字，不算金额。禁止创建其他岗位的文件。"
             "文档不写工具名。产出用简体中文。"
         ),
@@ -270,10 +284,15 @@ ROLES = [
             f"你是计价员。加载 skill {PRICE_SKILL} 与 {RUNBOOK}。"
             "用复核通过的抄录 + 读表结果，严格按计价 skill 的公式链算量价；"
             "按箱体材料选压铸铝或铁箱 BOM 路径，辅材/包材写明来源于 BOM 汇总。04-计价是演算底稿，不是对外报价单。"
+            "BOM 汇总格若读空：铁箱先算价税合计=含税单价×实际数量再按公式滚元/㎡；压铸铝按行合计再汇总；不得因汇总格空整条留空。"
+            "抄录点间距为招标未给出时：先用 question 按条目（页码·序号·名称）请用户给出毫米数；"
+            "选项可列价表已有档位但不默认代选；答复后按该值取模组价，算式备注「用户指定，非招标原文」；拒答则金额留空。"
             "只写入 04-计价.md。禁止创建其他岗位的文件。"
-            "单价空着就留空，不挑最低价；演示价只作对照。禁止无算式、无 BOM 依据的辅料数。文档不写工具名。产出用简体中文。"
+            "单价空着就留空，不挑最低价；附件价表（含-演示）按正式表取价写入金额。"
+            "禁止无算式、无 BOM 依据的辅料数。文档不写工具名。产出用简体中文。"
         ),
         PRICE_SKILL,
+        question=True,
     ),
     _worker(
         "mat",
@@ -295,7 +314,7 @@ ROLES = [
         (
             f"你是报价单员。加载 skill {SHEET_SKILL} 与 {RUNBOOK}。"
             "根据上游解析/复核/计价/物料核对，写出正式报价单.md。"
-            "每一行必须对应招标清单行，写清出处页；正式栏禁止演示价；空价写待确认。"
+            "每一条必须对应招标一览表序号，写清出处页码；上游计价金额写入正式栏；空价写待确认。"
             f"若任务说明要求 Word 或 .docx：优先加载 skill {DOCX_SKILL} 生成 报价单.docx；"
             f"若任务说明要求 PDF：优先加载 skill {PDF_SKILL} 生成 报价单.pdf（中文按 pdf skill 配 CJK 字体）。"
             "若平台 Skill 不支持所需版式或调用失败：在工作区写代码完成转换，输出同名 docx/pdf，内容须与 md 一致。"
