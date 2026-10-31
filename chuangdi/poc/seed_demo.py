@@ -417,6 +417,102 @@ def roll_sqm(ws, al, fe):
             paint(ws.cell(r, 15), round(fe_aux, 4))
 
 
+def _empty_or_fx(v):
+    if v in (None, ""):
+        return True
+    if isinstance(v, str) and v.startswith("="):
+        return True
+    if isinstance(v, (int, float)) and v == 0:
+        return True
+    return False
+
+
+def seed_price_sheets(wb):
+    # 箱体：综合单价列多为公式；填箱体单价/配件后由公式加总。无公式则直接填综合。
+    box = wb["箱体"]
+    for r in range(3, (box.max_row or 3) + 1):
+        name = box.cell(r, 2).value
+        if not name:
+            continue
+        mat = str(name)
+        base = 880.0 if "压铸" in mat else 720.0
+        if "含包边" in str(box.cell(r, 8).value or ""):
+            base += 110
+        if _empty_or_fx(box.cell(r, 5).value):
+            paint(box.cell(r, 5), base)
+        if _empty_or_fx(box.cell(r, 6).value):
+            paint(box.cell(r, 6), 40.0)
+        # 综合单价：演示写成可读数，避免 Agent 读到未计算的公式
+        paint(box.cell(r, 7), round(float(box.cell(r, 5).value) + float(box.cell(r, 6).value), 2))
+
+    psu = wb["电源"]
+    # 演示：按功率粗分档
+    for r in range(3, (psu.max_row or 3) + 1):
+        spec = str(psu.cell(r, 2).value or "")
+        if not spec:
+            continue
+        if not _empty_or_fx(psu.cell(r, 7).value):
+            continue
+        price = 48.0
+        if "300W" in spec:
+            price = 95.0
+        elif "200W" in spec:
+            price = 72.0
+        elif "175W" in spec:
+            price = 68.0
+        elif "110W" in spec:
+            price = 55.0
+        elif "100W" in spec:
+            price = 48.0
+        paint(psu.cell(r, 7), price)
+
+    br = wb["支架"]
+    for r in range(3, (br.max_row or 3) + 1):
+        name = br.cell(r, 2).value
+        if not name:
+            continue
+        e, f = br.cell(r, 5).value, br.cell(r, 6).value
+        if _empty_or_fx(e) and not (isinstance(e, str) and e.startswith("=") and "!" not in e):
+            # 无支架本体价时给示意；已有非零价保留
+            if not isinstance(e, (int, float)) or e == 0:
+                paint(br.cell(r, 5), 200.0)
+                e = 200.0
+        if isinstance(f, str) and f.startswith("="):
+            # 螺钉配件引用抱箍表：演示填示意数便于加总
+            paint(br.cell(r, 6), 30.0)
+            f = 30.0
+        elif _empty_or_fx(f):
+            paint(br.cell(r, 6), 30.0)
+            f = 30.0
+        if isinstance(e, (int, float)) and isinstance(f, (int, float)):
+            paint(br.cell(r, 7), round(e + f, 2))
+
+    hoop = wb["安装抱箍和螺钉"]
+    for r in range(3, (hoop.max_row or 3) + 1):
+        if not hoop.cell(r, 2).value:
+            continue
+        # 单价列 D=4, G=7, J=10；空则填示意
+        for c, p in ((4, 25.0), (7, 35.0), (10, 8.0)):
+            if _empty_or_fx(hoop.cell(r, c).value):
+                paint(hoop.cell(r, c), p)
+        # 合计列示意滚出，便于读
+        c_qty = _num(hoop.cell(r, 3).value) or 1
+        f_qty = _num(hoop.cell(r, 6).value) or 1
+        i_qty = _num(hoop.cell(r, 9).value) or 1
+        paint(hoop.cell(r, 5), round(c_qty * float(hoop.cell(r, 4).value), 2))
+        paint(hoop.cell(r, 8), round(f_qty * float(hoop.cell(r, 7).value), 2))
+        paint(hoop.cell(r, 11), round(i_qty * float(hoop.cell(r, 10).value), 2))
+        paint(
+            hoop.cell(r, 12),
+            round(
+                float(hoop.cell(r, 5).value)
+                + float(hoop.cell(r, 8).value)
+                + float(hoop.cell(r, 11).value),
+                2,
+            ),
+        )
+
+
 def seed_cost():
     if not SRC_COST.exists():
         raise SystemExit(f"缺少 {SRC_COST}，请先运行整理原表.py")
@@ -424,9 +520,9 @@ def seed_cost():
     wb = load_workbook(DST_COST)
     tip = wb["说明"]
     tip["A8"] = (
-        "【演示副本】已为辅材 BOM 空单价填模拟数，并按公式骨架滚出行合计与 1㎡ 辅料/包材汇总（黄底）。"
-        "正式稿大件单价仍应留空、取自规格单价表；正式稿汇总格保留公式，须在 Excel 中打开计算或由人维护滚出值。"
-        "本文件不是创迪成本。"
+        "【演示副本】辅材 BOM、箱体/电源/支架/抱箍价目已填模拟单价（黄底）并滚出可读汇总。"
+        "「常规电源数量」等为演示维护示意，供 POC 重算本项目收口；不是未确认的正式成本定额。"
+        "本文件不是创迪采购价。正式稿单价由成本维护；项目报价按招标+规格重算，非样例×面积。"
     )
 
     for sheet, price_col in (("压铸铝辅材", 4), ("铁箱辅材", 4)):
@@ -445,13 +541,23 @@ def seed_cost():
                 continue
             paint(ws.cell(r, price_col), price)
 
+    seed_price_sheets(wb)
+
     al = wb["压铸铝辅材"]
     fe = wb["铁箱辅材"]
     roll_aluminum(al)
     roll_iron(fe)
 
+    box = wb["箱体"]
+    # 价目行综合单价：压铸铝 / 镀锌含包边 / 镀锌不含包边
+    cab_cast = _num(box.cell(3, 7).value) or 920.0
+    cab_fe_edge = _num(box.cell(5, 7).value) or 830.0
+    cab_fe = _num(box.cell(4, 7).value) or 760.0
+    psu_price = _num(wb["电源"].cell(11, 7).value) or 72.0
+
     sqm = wb["每平米收口"]
     pitch = None
+    last_mat = ""
     for r in range(1, (sqm.max_row or 1) + 1):
         a = sqm.cell(r, 1).value
         title = str(a or "")
@@ -462,35 +568,49 @@ def seed_cost():
         if not a or not re.match(r"^\d", str(a)):
             continue
         material = str(sqm.cell(r, 2).value or "")
+        if material.strip():
+            last_mat = material
         beads = str(sqm.cell(r, 4).value or "")
         ratio = beads.split("/")[-1].strip() if beads else ""
-        # 模组单价
-        if sqm.cell(r, 6).value in (None, ""):
+        # 模组单价：演示示意（正式取规格表）；Agent 可读
+        if _empty_or_fx(sqm.cell(r, 6).value):
             paint(sqm.cell(r, 6), mod_unit(pitch or 25, ratio, None))
-        # 箱体单价：压铸铝 / 铁箱
-        if sqm.cell(r, 8).value in (None, ""):
-            cab = 990.0 if "压铸铝" in material else 760.0 if material else None
-            # 同行继承上一材料
-            if cab is None:
-                # 向上找材料
-                for up in range(r - 1, 0, -1):
-                    m = str(sqm.cell(up, 2).value or "")
-                    if "压铸铝" in m:
-                        cab = 990.0
-                        break
-                    if "镀锌" in m or "铁" in m:
-                        cab = 760.0
-                        break
-            if cab is not None:
-                paint(sqm.cell(r, 8), cab)
-        # 电源单价：5V200W 公开约 65 元级
-        if sqm.cell(r, 10).value in (None, ""):
-            paint(sqm.cell(r, 10), 72.0)
+        # 箱体单价：写入价目综合单价示意（覆盖未计算的引用公式）
+        mat = last_mat
+        if "压铸铝" in mat:
+            cab = cab_cast
+        elif "含包边" in mat:
+            cab = cab_fe_edge
+        else:
+            cab = cab_fe
+        if _empty_or_fx(sqm.cell(r, 8).value):
+            paint(sqm.cell(r, 8), cab)
+        # 电源单价
+        if _empty_or_fx(sqm.cell(r, 10).value):
+            paint(sqm.cell(r, 10), psu_price)
+        # 电源合计 = 单价 × 常规电源数量（演示可读）
+        qty = _num(sqm.cell(r, 9).value)
+        unit = _num(sqm.cell(r, 10).value)
+        if qty is not None and unit is not None and _empty_or_fx(sqm.cell(r, 11).value):
+            paint(sqm.cell(r, 11), round(qty * unit, 2))
+        # 模组合计
+        n_mod = _num(sqm.cell(r, 5).value)
+        u_mod = _num(sqm.cell(r, 6).value)
+        if n_mod is not None and u_mod is not None and _empty_or_fx(sqm.cell(r, 7).value):
+            paint(sqm.cell(r, 7), round(n_mod * u_mod, 2))
         note = sqm.cell(r, 17).value
-        mark = "演示价·大件示意"
+        mark = "演示价·收口示意（电源只数为演示维护值）"
         paint(sqm.cell(r, 17), f"{note}；{mark}" if note else mark)
 
     roll_sqm(sqm, al, fe)
+    # 总计示意：有分项则相加
+    for r in range(2, (sqm.max_row or 2) + 1):
+        if not sqm.cell(r, 1).value or not re.match(r"^\d", str(sqm.cell(r, 1).value)):
+            continue
+        parts = [_num(sqm.cell(r, c).value) for c in (7, 8, 11, 12, 13, 14, 15)]
+        if any(p is not None for p in parts) and _empty_or_fx(sqm.cell(r, 16).value):
+            paint(sqm.cell(r, 16), round(sum(p or 0 for p in parts), 2))
+
     wb.save(DST_COST)
     return DST_COST
 
