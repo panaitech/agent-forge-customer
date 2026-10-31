@@ -241,7 +241,12 @@ def seed_ctrl(wb):
     if last is not None:
         paint(ws.cell(last, 5), round(total, 2))
         note = ws.cell(last, 3).value
-        paint(ws.cell(last, 3), f"{note}（演示汇总）" if note and "演示" not in str(note) else note)
+        # 原表行名常含「10平方」；演示明确按「每套控制系统」取该合计，不按面积折算
+        if note and "演示" not in str(note):
+            paint(
+                ws.cell(last, 3),
+                f"{note}（演示汇总·按每套控制系统取用，不按10㎡折算）",
+            )
 
 
 def mod_unit(pitch, ratio, fee, glue_face="单面"):
