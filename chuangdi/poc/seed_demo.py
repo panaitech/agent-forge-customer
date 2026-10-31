@@ -187,7 +187,61 @@ def bom_price(name):
         return None
     if "面罩" in t or "底壳" in t:
         return None
+    # 控制箱 BOM 常见件
+    if "控制箱" in t and ("裸机" in t or "箱体" in t or "标志" in t):
+        return 680.0
+    if "多媒体" in t or "播放盒" in t or "控制卡" in t:
+        return 420.0
+    if "防雷" in t:
+        return 85.0
+    if "空开" in t or "断路" in t:
+        return 28.0
+    if "光探" in t:
+        return 95.0
+    if "开关电源" in t or "LM25" in t:
+        return 45.0
+    if "波纹管" in t:
+        return 12.0
+    if "几字连接" in t or "背抱" in t:
+        return 38.0
     return 1.5
+
+
+def seed_ctrl(wb):
+    # 控制箱：含税单价空则填演示价；行合计 = 单价×数量；末行总计滚出
+    ws = wb["控制箱"]
+    total = 0.0
+    last = None
+    for r in range(2, (ws.max_row or 2) + 1):
+        name = ws.cell(r, 3).value
+        if not name:
+            continue
+        title = str(name)
+        if "总计" in title:
+            last = r
+            continue
+        price = ws.cell(r, 4).value
+        if _empty_or_fx(price):
+            p = bom_price(title)
+            if p is None:
+                p = 1.5
+            paint(ws.cell(r, 4), p)
+            price = p
+        qty = _num(ws.cell(r, 6).value)
+        if qty is None:
+            qty = 1.0
+            paint(ws.cell(r, 6), qty)
+        unit = _num(price)
+        if unit is None:
+            continue
+        line = round(unit * qty, 2)
+        if _empty_or_fx(ws.cell(r, 5).value):
+            paint(ws.cell(r, 5), line)
+        total += line
+    if last is not None:
+        paint(ws.cell(last, 5), round(total, 2))
+        note = ws.cell(last, 3).value
+        paint(ws.cell(last, 3), f"{note}（演示汇总）" if note and "演示" not in str(note) else note)
 
 
 def mod_unit(pitch, ratio, fee, glue_face="单面"):
@@ -520,7 +574,7 @@ def seed_cost():
     wb = load_workbook(DST_COST)
     tip = wb["说明"]
     tip["A8"] = (
-        "【演示副本】辅材 BOM、箱体/电源/支架/抱箍价目已填模拟单价（黄底）并滚出可读汇总。"
+        "【演示副本】辅材 BOM、箱体/电源/支架/抱箍/控制箱价目已填模拟单价（黄底）并滚出可读汇总。"
         "「常规电源数量」等为演示维护示意，供 POC 重算本项目收口；不是未确认的正式成本定额。"
         "本文件不是创迪采购价。正式稿单价由成本维护；项目报价按招标+规格重算，非样例×面积。"
     )
@@ -542,6 +596,7 @@ def seed_cost():
             paint(ws.cell(r, price_col), price)
 
     seed_price_sheets(wb)
+    seed_ctrl(wb)
 
     al = wb["压铸铝辅材"]
     fe = wb["铁箱辅材"]
