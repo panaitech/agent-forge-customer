@@ -1,0 +1,16 @@
+# docker build context = wecom-bridge/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+data/*.sqlite3
+data/attachments/
+.git/
+docker/local/.env.generated
+docker/tencent/.env
+docker/tencent/ssl/
+.deploy/
+*.tar
+*.tar.gz
+tests/

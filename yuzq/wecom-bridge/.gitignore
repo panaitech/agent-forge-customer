@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/*.sqlite3
+data/attachments/
+.pytest_cache/
+.deploy/
+docker/local/.env.generated
+docker/tencent/.env
+docker/tencent/ssl/
+*.pem
+*.tar
+*.tar.gz

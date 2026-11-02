@@ -1,0 +1,8 @@
+{
+  "approver_userid": {
+    "role": "approver"
+  },
+  "disabled_userid": {
+    "status": "disabled"
+  }
+}

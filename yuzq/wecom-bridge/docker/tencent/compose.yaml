@@ -1,0 +1,69 @@
+# 职责：腾讯云轻量服务器运行 WeCom Bridge（只引用镜像，无源码树）。
+#
+# 拓扑建议：
+#   公网 HTTPS ──> 宿主/网关 nginx ──反代──> 127.0.0.1:8787（本 compose 仅绑 localhost）
+#   Bridge ──host.docker.internal──> 同机 Agent Forge Runtime
+#
+# 由 deploy.sh 本机构建镜像并 docker load 后启动。
+name: yuzq-wecom-bridge
+
+services:
+  wecom-bridge:
+    image: yuzq-wecom-bridge:${TAG:-latest}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # 仅本机可访问；公网经 nginx TLS 反代
+    ports:
+      - "127.0.0.1:${BRIDGE_HOST_PORT:-8787}:8787"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "8787"
+      DATA_DIR: /app/data
+      EXCEPTIONS_PATH: /app/config/exceptions.json
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      WECOM_CORP_ID: ${WECOM_CORP_ID}
+      WECOM_AGENT_ID: ${WECOM_AGENT_ID}
+      WECOM_SECRET: ${WECOM_SECRET}
+      WECOM_TOKEN: ${WECOM_TOKEN}
+      WECOM_ENCODING_AES_KEY: ${WECOM_ENCODING_AES_KEY}
+      WECOM_API_BASE: ${WECOM_API_BASE:-https://qyapi.weixin.qq.com}
+      AF_TENANT_ID: ${AF_TENANT_ID}
+      AF_DEFAULT_ROLE: ${AF_DEFAULT_ROLE:-operator}
+      AF_BASE_URL: ${AF_BASE_URL:-http://host.docker.internal:4096}
+      AF_CONSOLE_BASE_URL: ${AF_CONSOLE_BASE_URL}
+      AF_USERNAME: ${AF_USERNAME:-wecom-bridge}
+      AF_PASSWORD: ${AF_PASSWORD}
+      AF_INTAKE_TEAM_ID: ${AF_INTAKE_TEAM_ID:-}
+      AF_INTAKE_TEAM_NAME: ${AF_INTAKE_TEAM_NAME:-雨中情-合同录入}
+      RUN_POLL_INTERVAL_SEC: ${RUN_POLL_INTERVAL_SEC:-5}
+      RUN_POLL_MAX_SEC: ${RUN_POLL_MAX_SEC:-28800}
+      TICKET_SECRET: ${TICKET_SECRET}
+      TICKET_TTL_SEC: ${TICKET_TTL_SEC:-1800}
+      BRIDGE_ADMIN_TOKEN: ${BRIDGE_ADMIN_TOKEN:-}
+      IDENTITY_AUTO_PROVISION: ${IDENTITY_AUTO_PROVISION:-false}
+      MEDIA_MAX_BYTES: ${MEDIA_MAX_BYTES:-20971520}
+      DRY_RUN_FORGE: ${DRY_RUN_FORGE:-false}
+      DRY_RUN_WECOM_SEND: ${DRY_RUN_WECOM_SEND:-false}
+    volumes:
+      - bridge-data:/app/data
+      - ./exceptions.json:/app/config/exceptions.json:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/healthz', timeout=2)",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  bridge-data:
