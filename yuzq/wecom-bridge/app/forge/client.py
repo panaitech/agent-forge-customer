@@ -9,12 +9,24 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 from app.config import Settings
 
 log = logging.getLogger("forge.client")
+
+
+def _header_id(value: str) -> str:
+    """HTTP 头不能直接放非 ASCII；与 runtime decodeHeaderId / encodeURIComponent 对齐。"""
+    text = (value or "").strip()
+    if not text:
+        return text
+    # 常见 slug 原样；含中文等则 percent-encode
+    if all(ch.isascii() and (ch.isalnum() or ch in "._-") for ch in text):
+        return text
+    return quote(text, safe="-_.!~*'()")
 
 
 class OwnerMismatchError(RuntimeError):
@@ -77,8 +89,8 @@ class ForgeClient:
 
     def _headers(self, tenant_id: str, owner_id: str, role: str) -> dict[str, str]:
         return {
-            "X-AgentForge-Tenant-Id": tenant_id,
-            "X-AgentForge-Owner-Id": owner_id,
+            "X-AgentForge-Tenant-Id": _header_id(tenant_id),
+            "X-AgentForge-Owner-Id": _header_id(owner_id),
             "X-AgentForge-Role": role,
         }
 

@@ -494,6 +494,18 @@ def _die_auth(base: str, status: int) -> None:
     raise SystemExit(1)
 
 
+def _header_id(value: str) -> str:
+    """与 runtime 约定：非 ASCII 租户 ID 须 percent-encode 后再进 HTTP 头。"""
+    from urllib.parse import quote
+
+    text = (value or "").strip()
+    if not text:
+        return text
+    if all(ch.isascii() and (ch.isalnum() or ch in "._-") for ch in text):
+        return text
+    return quote(text, safe="-_.!~*'()")
+
+
 class Client:
     """控制台 HTTP。租户头把 MCP、Skill、角色、协作都写进指定租户。"""
 
@@ -501,7 +513,7 @@ class Client:
         self.base = base.rstrip("/")
         self.headers = {
             "Content-Type": "application/json",
-            "X-AgentForge-Tenant-Id": tenant,
+            "X-AgentForge-Tenant-Id": _header_id(tenant),
             "X-AgentForge-Role": role,
             "X-AgentForge-Channel": "console",
         }
